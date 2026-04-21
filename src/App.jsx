@@ -619,10 +619,10 @@ function App() {
           <IconButton icon={SettingsIcon} label="설정" shortcut="⌘," onClick={() => setShowSettings(true)} tooltipSide="bottom" />
           {updateInfo.status === 'available' && (
             <span style={{
-              position: 'absolute', top: 4, right: 4,
-              width: 7, height: 7, borderRadius: '50%',
-              background: 'var(--accent)',
-              boxShadow: '0 0 0 2px var(--bg-2)',
+              position: 'absolute', top: 3, right: 3,
+              width: 9, height: 9, borderRadius: '50%',
+              background: 'var(--danger)',
+              boxShadow: '0 0 0 2px var(--bg-2), 0 0 6px oklch(0.66 0.18 25 / 0.7)',
               pointerEvents: 'none',
             }} />
           )}
