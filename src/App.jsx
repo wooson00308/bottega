@@ -52,9 +52,9 @@ function HelpIcon({ size = 16 }) {
 }
 function SettingsIcon({ size = 16 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
       <circle cx="12" cy="12" r="3"/>
-      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
     </svg>
   );
 }
@@ -460,6 +460,11 @@ function App() {
         if (e.shiftKey) exportActiveAs(); else exportActive();
         return;
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(s => !s);
+        return;
+      }
       const m = TOOLS.find(t => t.shortcut?.toLowerCase() === k);
       if (m) { setTool(m.id); return; }
       if (k === '1' || k === '2' || k === '3' || k === '4') {
@@ -602,8 +607,16 @@ function App() {
         </div>
         <Button variant="ghost" onClick={clearMask} disabled={!active}>초기화</Button>
         <IconButton icon={HelpIcon} label="단축키" shortcut="?" onClick={() => setShowHelp(true)} tooltipSide="bottom" />
+        <div style={{ width: 1, height: 24, background: 'var(--line)' }} />
+        <Button onClick={exportAll} disabled={!sprites.length}
+          icon={Icon.Download}>일괄 내보내기</Button>
+        <IconButton icon={Icon.FolderOpen} label="다른 위치로 저장" shortcut="⌘⇧S"
+          onClick={exportActiveAs} disabled={!active} tooltipSide="bottom" />
+        <Button variant="primary" onClick={exportActive} disabled={!active}
+          icon={Icon.Save}>마스크 내보내기</Button>
+        <div style={{ width: 1, height: 24, background: 'var(--line)' }} />
         <span style={{ position: 'relative', display: 'inline-flex' }}>
-          <IconButton icon={SettingsIcon} label="설정" onClick={() => setShowSettings(true)} tooltipSide="bottom" />
+          <IconButton icon={SettingsIcon} label="설정" shortcut="⌘," onClick={() => setShowSettings(true)} tooltipSide="bottom" />
           {updateInfo.status === 'available' && (
             <span style={{
               position: 'absolute', top: 4, right: 4,
@@ -614,13 +627,6 @@ function App() {
             }} />
           )}
         </span>
-        <div style={{ width: 1, height: 24, background: 'var(--line)' }} />
-        <Button onClick={exportAll} disabled={!sprites.length}
-          icon={Icon.Download}>일괄 내보내기</Button>
-        <IconButton icon={Icon.FolderOpen} label="다른 위치로 저장" shortcut="⌘⇧S"
-          onClick={exportActiveAs} disabled={!active} tooltipSide="bottom" />
-        <Button variant="primary" onClick={exportActive} disabled={!active}
-          icon={Icon.Save}>마스크 내보내기</Button>
       </div>
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -1269,8 +1275,7 @@ function SettingsModal({
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             {status !== 'downloading' && status !== 'installing' && status !== 'ready' && (
-              <Button variant="ghost" onClick={onRecheck}
-                disabled={status === 'checking'}>
+              <Button onClick={onRecheck} disabled={status === 'checking'}>
                 {status === 'checking' ? '확인 중…' : '다시 확인'}
               </Button>
             )}
@@ -1380,6 +1385,7 @@ function HelpModal({ onClose }) {
       ['⌘⇧Z / Ctrl+Y', '다시 실행'],
       ['⌘S / Ctrl+S', '마스크 내보내기'],
       ['⌘⇧S', '다른 위치로 저장…'],
+      ['⌘,', '설정 열기 / 닫기'],
       ['?', '이 창 열기 / 닫기'],
       ['Esc', '창 닫기'],
     ]},
