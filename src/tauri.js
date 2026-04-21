@@ -44,6 +44,17 @@ export async function pickImages() {
   return Array.isArray(selected) ? selected : [selected];
 }
 
+// Single-file picker (used for guide import).
+export async function pickSingleImage() {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'Images', extensions: ['png', 'PNG'] }],
+  });
+  if (!selected) return null;
+  return Array.isArray(selected) ? selected[0] : selected;
+}
+
 // Prompt for a save destination, seeded with the default target path.
 export async function pickSavePath(defaultPath) {
   const chosen = await save({

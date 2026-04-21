@@ -6,9 +6,10 @@ import { IconButton, SectionHeader, Button } from './ui.jsx';
 import {
   CHANNELS, channelByRgb, loadSprite, createMaskCanvas,
   snapMask, computeStats, floodFill, stampBrush, strokeLine, cloneCanvas,
+  hardenGuideIntoMask,
 } from './mask.jsx';
 import {
-  isTauri, pickImages, pickSavePath, readImageAsBlob,
+  isTauri, pickImages, pickSingleImage, pickSavePath, readImageAsBlob,
   writePng, blobToBytes, buildOutputPath, stripExt,
 } from './tauri.js';
 import { getAppVersion, checkForUpdate, installUpdate, relaunchApp } from './updater.js';
@@ -565,6 +566,27 @@ function App() {
     }
   }, [ingest, showToast]);
 
+  const importGuide = useCallback(async () => {
+    if (!active) { showToast('먼저 스프라이트를 불러오세요', 'warn'); return; }
+    if (!isTauri) { showToast('가이드 불러오기는 데스크탑 앱에서만 지원', 'warn'); return; }
+    try {
+      const path = await pickSingleImage();
+      if (!path) return;
+      const { blob } = await readImageAsBlob(path);
+      const counts = await hardenGuideIntoMask(blob, active.sprite, active.maskCanvas);
+      pushHistory();
+      setTick(t => t + 1);
+      const total = counts.primary + counts.secondary + counts.accent + counts.detail;
+      const pct = (n) => total ? `${Math.round(n / total * 100)}%` : '0%';
+      showToast(
+        `가이드 적용 · P ${pct(counts.primary)} / S ${pct(counts.secondary)} / A ${pct(counts.accent)} / D ${pct(counts.detail)}`
+      );
+    } catch (e) {
+      console.warn('guide import failed', e);
+      showToast('가이드 가져오기 실패: ' + (e?.message || e), 'warn');
+    }
+  }, [active, pushHistory, showToast]);
+
   return (
     <>
       <div style={{
@@ -587,6 +609,9 @@ function App() {
         <div style={{ width: 1, height: 24, background: 'var(--line)' }} />
 
         <Button icon={Icon.Upload} onClick={openPicker}>스프라이트 불러오기</Button>
+        <Button icon={Icon.FolderUp} variant="ghost" onClick={importGuide} disabled={!active}>
+          가이드 가져오기
+        </Button>
         <input ref={fileInputRef} type="file" accept="image/png,image/*" multiple hidden
           onChange={e => { ingest(e.target.files); e.target.value = ''; }} />
 
@@ -1388,6 +1413,11 @@ function HelpModal({ onClose }) {
       ['⌘,', '설정 열기 / 닫기'],
       ['?', '이 창 열기 / 닫기'],
       ['Esc', '창 닫기'],
+    ]},
+    { group: '가이드 가져오기', items: [
+      ['상단 버튼', '외부 PNG 가이드를 harden해서 현재 스프라이트 마스크에 적용'],
+      ['규칙', 'dominant>100, margin>40 → pure 채널. 미달 → Detail(검정)'],
+      ['알파', '원본 스프라이트 알파로 자동 클리핑'],
     ]},
   ];
   return (

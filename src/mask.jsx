@@ -185,6 +185,72 @@ export function strokeLine(maskCanvas, spriteAlpha, x0, y0, x1, y1, radius, fill
   }
 }
 
+// Import an external guide PNG, run the hardening rule, and paint into maskCanvas.
+// Rule (matches GMLM Tools/harden_mask.py):
+//   dominant > 100 AND dominant - second > 40  →  pure channel (R/G/B = 255)
+//   otherwise                                 →  Detail (black, if sprite alpha > 0)
+// Sprite alpha is always honored: pixels outside the sprite silhouette stay transparent.
+export async function hardenGuideIntoMask(guideBlob, sprite, maskCanvas) {
+  const w = sprite.w, h = sprite.h;
+  const url = URL.createObjectURL(guideBlob);
+  const img = new Image();
+  img.src = url;
+  try {
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  if (img.naturalWidth !== w || img.naturalHeight !== h) {
+    throw new Error(
+      `가이드 해상도 불일치: ${img.naturalWidth}×${img.naturalHeight} (원본 ${w}×${h})`
+    );
+  }
+
+  const tc = document.createElement('canvas');
+  tc.width = w; tc.height = h;
+  const tctx = tc.getContext('2d');
+  tctx.imageSmoothingEnabled = false;
+  tctx.drawImage(img, 0, 0);
+  const guide = tctx.getImageData(0, 0, w, h).data;
+
+  const mctx = maskCanvas.getContext('2d');
+  const out = mctx.createImageData(w, h);
+  const od = out.data;
+
+  const DOMINANT_MIN = 100;
+  const MARGIN = 40;
+
+  const counts = { primary: 0, secondary: 0, accent: 0, detail: 0 };
+  for (let i = 0; i < w * h; i++) {
+    const off = i * 4;
+    if (sprite.alpha[i] === 0) continue; // stay transparent
+    const r = guide[off], g = guide[off + 1], b = guide[off + 2], a = guide[off + 3];
+    if (a < 16) {
+      od[off] = 0; od[off + 1] = 0; od[off + 2] = 0; od[off + 3] = 255;
+      counts.detail++;
+      continue;
+    }
+    let dominant, second, pick;
+    if (r >= g && r >= b) { dominant = r; second = Math.max(g, b); pick = 'r'; }
+    else if (g >= b)      { dominant = g; second = Math.max(r, b); pick = 'g'; }
+    else                  { dominant = b; second = Math.max(r, g); pick = 'b'; }
+
+    if (dominant > DOMINANT_MIN && dominant - second > MARGIN) {
+      if (pick === 'r')      { od[off] = 255; counts.primary++; }
+      else if (pick === 'g') { od[off + 1] = 255; counts.secondary++; }
+      else                   { od[off + 2] = 255; counts.accent++; }
+      od[off + 3] = 255;
+    } else {
+      od[off] = 0; od[off + 1] = 0; od[off + 2] = 0; od[off + 3] = 255;
+      counts.detail++;
+    }
+  }
+
+  mctx.clearRect(0, 0, w, h);
+  mctx.putImageData(out, 0, 0);
+  return counts;
+}
+
 // Clone mask canvas (for history)
 export function cloneCanvas(src) {
   const c = document.createElement('canvas');
