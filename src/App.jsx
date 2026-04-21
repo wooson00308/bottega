@@ -6,7 +6,7 @@ import { IconButton, SectionHeader, Button } from './ui.jsx';
 import {
   CHANNELS, channelByRgb, loadSprite, createMaskCanvas,
   snapMask, computeStats, floodFill, stampBrush, strokeLine, cloneCanvas,
-  hardenGuideIntoMask,
+  hardenGuideIntoMask, prefillDetail,
 } from './mask.jsx';
 import {
   isTauri, pickImages, pickSingleImage, pickSavePath, readImageAsBlob,
@@ -105,6 +105,16 @@ function App() {
     setOutputSubfolderState(v);
     try { localStorage.setItem('bottega.outputSubfolder', v); } catch { /* noop */ }
   }, []);
+  const [autoGuide, setAutoGuideState] = useState(() => {
+    try {
+      const v = localStorage.getItem('bottega.autoGuide');
+      return v === null ? true : v === 'true';
+    } catch { return true; }
+  });
+  const setAutoGuide = useCallback((v) => {
+    setAutoGuideState(v);
+    try { localStorage.setItem('bottega.autoGuide', String(v)); } catch { /* noop */ }
+  }, []);
   const fileInputRef = useRef(null);
 
   const active = sprites.find(s => s.id === activeId);
@@ -172,6 +182,7 @@ function App() {
           continue;
         }
         const maskCanvas = createMaskCanvas(sprite.w, sprite.h);
+        if (autoGuide) prefillDetail(sprite, maskCanvas);
         loaded.push({
           id: 'S' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
           sprite, maskCanvas,
@@ -193,7 +204,7 @@ function App() {
       if (!activeId) setActiveId(loaded[0].id);
       if (loaded.length > 1) showToast(`${loaded.length}개 불러옴`);
     }
-  }, [activeId, showToast]);
+  }, [activeId, showToast, autoGuide]);
 
   const pushHistory = useCallback(() => {
     if (!active) return;
@@ -958,6 +969,8 @@ function App() {
           onRelaunch={relaunchApp}
           outputSubfolder={outputSubfolder}
           onOutputSubfolderChange={setOutputSubfolder}
+          autoGuide={autoGuide}
+          onAutoGuideChange={setAutoGuide}
         />
       )}
 
@@ -1186,6 +1199,7 @@ function EmptyState({ onClick }) {
 function SettingsModal({
   onClose, appVersion, updateInfo, onRecheck, onInstall, onRelaunch,
   outputSubfolder, onOutputSubfolderChange,
+  autoGuide, onAutoGuideChange,
 }) {
   const { status } = updateInfo;
 
@@ -1358,6 +1372,35 @@ function SettingsModal({
           <div style={{ marginTop: 6, fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--mono)' }}>
             공란이면 마스크를 원본 스프라이트 옆에 바로 저장
           </div>
+        </div>
+
+        {/* Guide */}
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{
+            fontSize: 10, fontFamily: 'var(--mono)', letterSpacing: '0.16em',
+            textTransform: 'uppercase', color: 'var(--fg-3)', marginBottom: 12,
+          }}>Guida · 가이드</div>
+
+          <label style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            cursor: 'pointer', userSelect: 'none',
+          }}>
+            <input
+              type="checkbox"
+              checked={autoGuide}
+              onChange={e => onAutoGuideChange(e.target.checked)}
+              style={{ marginTop: 2, accentColor: 'var(--accent)' }}
+            />
+            <div style={{ flex: 1, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-1)' }}>
+                스프라이트 불러올 때 전체를 Detail(원본 유지)로 자동 채움
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--fg-3)', marginTop: 3 }}>
+                기본값 "원본 유지"에서 시작해서 팀컬러 영역만 P/S/A로 덧칠.
+                빈 마스크에서 시작하고 싶으면 끄기.
+              </div>
+            </div>
+          </label>
         </div>
 
         {/* Footer */}

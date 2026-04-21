@@ -185,6 +185,23 @@ export function strokeLine(maskCanvas, spriteAlpha, x0, y0, x1, y1, radius, fill
   }
 }
 
+// Prefill the mask with Detail (black) wherever the sprite has any alpha.
+// Gives you "keep original everywhere" as the starting state — then you only
+// paint the team-color regions.
+export function prefillDetail(sprite, maskCanvas) {
+  const w = sprite.w, h = sprite.h;
+  const ctx = maskCanvas.getContext('2d');
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  for (let i = 0; i < w * h; i++) {
+    if (sprite.alpha[i] === 0) continue;
+    const off = i * 4;
+    d[off] = 0; d[off + 1] = 0; d[off + 2] = 0; d[off + 3] = 255;
+  }
+  ctx.clearRect(0, 0, w, h);
+  ctx.putImageData(img, 0, 0);
+}
+
 // Import an external guide PNG, run the hardening rule, and paint into maskCanvas.
 // Rule (matches GMLM Tools/harden_mask.py):
 //   dominant > 100 AND dominant - second > 40  →  pure channel (R/G/B = 255)
