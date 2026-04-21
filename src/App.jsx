@@ -9,8 +9,9 @@ import {
 } from './mask.jsx';
 import {
   isTauri, pickImages, pickSavePath, readImageAsBlob,
-  writePng, blobToBytes, buildOutputPath, stripExt, splitPath,
+  writePng, blobToBytes, buildOutputPath, stripExt,
 } from './tauri.js';
+import { getAppVersion, checkForUpdate, installUpdate, relaunchApp } from './updater.js';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 
 function BucketIcon({ size = 16 }) {
@@ -49,6 +50,14 @@ function HelpIcon({ size = 16 }) {
     </svg>
   );
 }
+function SettingsIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
+    </svg>
+  );
+}
 
 const TOOLS = [
   { id: 'brush', icon: ToolIcon.Pennello, label: 'Pennello — 붓', shortcut: 'B' },
@@ -82,6 +91,9 @@ function App() {
   const [tick, setTick] = useState(0);
   const [showHelp, setShowHelp] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+  const [updateInfo, setUpdateInfo] = useState({ status: 'idle' });
   const [outputSubfolder, setOutputSubfolderState] = useState(() => {
     try {
       const v = localStorage.getItem('bottega.outputSubfolder');
@@ -481,6 +493,45 @@ function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
+  // Load app version + silent update check on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const v = await getAppVersion();
+      if (!cancelled && v) setAppVersion(v);
+      if (!isTauri) return;
+      setUpdateInfo({ status: 'checking' });
+      const r = await checkForUpdate();
+      if (!cancelled) setUpdateInfo(r);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const recheckUpdate = useCallback(async () => {
+    if (!isTauri) return;
+    setUpdateInfo({ status: 'checking' });
+    const r = await checkForUpdate();
+    setUpdateInfo(r);
+  }, []);
+
+  const applyUpdate = useCallback(async () => {
+    if (updateInfo.status !== 'available' || !updateInfo.update) return;
+    setUpdateInfo(prev => ({ ...prev, status: 'downloading', downloaded: 0, total: 0 }));
+    try {
+      await installUpdate(updateInfo.update, (p) => {
+        setUpdateInfo(prev => ({
+          ...prev,
+          status: p.phase === 'installing' ? 'installing' : 'downloading',
+          downloaded: p.downloaded ?? prev.downloaded,
+          total: p.total ?? prev.total,
+        }));
+      });
+      setUpdateInfo(prev => ({ ...prev, status: 'ready' }));
+    } catch (e) {
+      setUpdateInfo({ status: 'error', error: e?.message || String(e) });
+    }
+  }, [updateInfo]);
+
   // Native drag-drop via Tauri webview (bypasses the browser drop event).
   useEffect(() => {
     if (!isTauri) return;
@@ -551,6 +602,18 @@ function App() {
         </div>
         <Button variant="ghost" onClick={clearMask} disabled={!active}>초기화</Button>
         <IconButton icon={HelpIcon} label="단축키" shortcut="?" onClick={() => setShowHelp(true)} tooltipSide="bottom" />
+        <span style={{ position: 'relative', display: 'inline-flex' }}>
+          <IconButton icon={SettingsIcon} label="설정" onClick={() => setShowSettings(true)} tooltipSide="bottom" />
+          {updateInfo.status === 'available' && (
+            <span style={{
+              position: 'absolute', top: 4, right: 4,
+              width: 7, height: 7, borderRadius: '50%',
+              background: 'var(--accent)',
+              boxShadow: '0 0 0 2px var(--bg-2)',
+              pointerEvents: 'none',
+            }} />
+          )}
+        </span>
         <div style={{ width: 1, height: 24, background: 'var(--line)' }} />
         <Button onClick={exportAll} disabled={!sprites.length}
           icon={Icon.Download}>일괄 내보내기</Button>
@@ -854,6 +917,18 @@ function App() {
       </div>
 
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          appVersion={appVersion}
+          updateInfo={updateInfo}
+          onRecheck={recheckUpdate}
+          onInstall={applyUpdate}
+          onRelaunch={relaunchApp}
+          outputSubfolder={outputSubfolder}
+          onOutputSubfolderChange={setOutputSubfolder}
+        />
+      )}
 
       {toast && (
         <div style={{
@@ -1072,6 +1147,206 @@ function EmptyState({ onClick }) {
         fontFamily: 'var(--mono)', marginTop: 20 }}>
         <span>B 붓</span><span>G 채우기</span><span>E 지우개</span>
         <span>1-4 채널</span><span>[ ] 굵기</span><span>M 미러</span><span>⌘S 내보내기</span>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({
+  onClose, appVersion, updateInfo, onRecheck, onInstall, onRelaunch,
+  outputSubfolder, onOutputSubfolderChange,
+}) {
+  const { status } = updateInfo;
+
+  const statusLine = (() => {
+    switch (status) {
+      case 'checking':
+        return { text: '업데이트 확인 중…', tone: 'muted' };
+      case 'latest':
+        return { text: '최신 버전입니다', tone: 'ok' };
+      case 'available':
+        return { text: `새 버전 v${updateInfo.next} 사용 가능`, tone: 'accent' };
+      case 'downloading': {
+        const pct = updateInfo.total
+          ? Math.floor((updateInfo.downloaded / updateInfo.total) * 100)
+          : 0;
+        return { text: `다운로드 중 ${pct}%`, tone: 'accent' };
+      }
+      case 'installing':
+        return { text: '설치 중…', tone: 'accent' };
+      case 'ready':
+        return { text: '설치 완료 · 재시작 필요', tone: 'accent' };
+      case 'error':
+        return { text: `확인 실패: ${updateInfo.error || ''}`, tone: 'danger' };
+      default:
+        return { text: '상태 대기', tone: 'muted' };
+    }
+  })();
+
+  const toneColor = {
+    ok: 'var(--fg-1)',
+    accent: 'var(--accent)',
+    danger: 'var(--danger)',
+    muted: 'var(--fg-2)',
+  }[statusLine.tone];
+
+  return (
+    <div onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'oklch(0.05 0 0 / 0.7)',
+        zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backdropFilter: 'blur(4px)',
+      }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-1)', border: '1px solid var(--line-strong)',
+          borderRadius: 8, width: 520, maxWidth: '92vw', maxHeight: '85vh',
+          overflow: 'auto', boxShadow: 'var(--shadow)',
+        }}>
+        <div style={{
+          padding: '16px 20px', borderBottom: '1px solid var(--line)',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <BottegaMark size={28} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 20, fontWeight: 600 }}>설정</div>
+            <div style={{ fontSize: 11, color: 'var(--fg-3)', fontFamily: 'var(--mono)',
+              letterSpacing: '0.16em', textTransform: 'uppercase', marginTop: 2 }}>
+              Impostazioni
+            </div>
+          </div>
+          <button onClick={onClose}
+            style={{ color: 'var(--fg-2)', padding: 6, borderRadius: 4 }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--fg)'; e.currentTarget.style.background = 'var(--bg-3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--fg-2)'; e.currentTarget.style.background = 'transparent'; }}
+          ><Icon.X size={16} /></button>
+        </div>
+
+        {/* Update */}
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{
+            fontSize: 10, fontFamily: 'var(--mono)', letterSpacing: '0.16em',
+            textTransform: 'uppercase', color: 'var(--fg-3)', marginBottom: 12,
+          }}>Aggiornamento · 업데이트</div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-1)' }}>현재 버전</div>
+              <div style={{
+                fontFamily: 'var(--mono)', fontSize: 14, color: 'var(--fg)',
+                marginTop: 2,
+              }}>
+                {appVersion ? `v${appVersion}` : '—'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 12, color: 'var(--fg-3)' }}>상태</div>
+              <div style={{
+                fontSize: 12, color: toneColor, marginTop: 2,
+                display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end',
+              }}>
+                {status === 'latest' && <Icon.Check size={12} />}
+                {(status === 'available' || status === 'ready') && <Icon.Dot size={10} />}
+                {statusLine.text}
+              </div>
+            </div>
+          </div>
+
+          {status === 'downloading' && (
+            <div style={{
+              height: 4, background: 'var(--bg-3)', borderRadius: 2, marginBottom: 10,
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%', background: 'var(--accent)',
+                width: updateInfo.total
+                  ? `${Math.min(100, (updateInfo.downloaded / updateInfo.total) * 100)}%`
+                  : '10%',
+                transition: 'width 200ms',
+              }} />
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {status !== 'downloading' && status !== 'installing' && status !== 'ready' && (
+              <Button variant="ghost" onClick={onRecheck}
+                disabled={status === 'checking'}>
+                {status === 'checking' ? '확인 중…' : '다시 확인'}
+              </Button>
+            )}
+            {status === 'available' && (
+              <Button variant="primary" icon={Icon.Download} onClick={onInstall}>
+                지금 업데이트
+              </Button>
+            )}
+            {status === 'ready' && (
+              <Button variant="primary" onClick={onRelaunch}>
+                재시작해서 적용
+              </Button>
+            )}
+          </div>
+
+          {!isTauri && (
+            <div style={{ marginTop: 8, fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--mono)' }}>
+              브라우저 모드에서는 업데이트를 확인할 수 없어요.
+            </div>
+          )}
+        </div>
+
+        {/* Output */}
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }}>
+          <div style={{
+            fontSize: 10, fontFamily: 'var(--mono)', letterSpacing: '0.16em',
+            textTransform: 'uppercase', color: 'var(--fg-3)', marginBottom: 12,
+          }}>Uscita · 출력</div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ fontSize: 12, color: 'var(--fg-1)', flex: '0 0 auto' }}>
+              하위 폴더
+            </label>
+            <input
+              type="text"
+              value={outputSubfolder}
+              onChange={e => onOutputSubfolderChange(e.target.value)}
+              placeholder="Masks_SAM2"
+              spellCheck={false}
+              style={{
+                flex: 1,
+                background: 'var(--bg-2)',
+                border: '1px solid var(--line)',
+                borderRadius: 4,
+                padding: '6px 8px',
+                color: 'var(--fg)',
+                fontFamily: 'var(--mono)',
+                fontSize: 12,
+                outline: 'none',
+              }}
+              onFocus={e => e.currentTarget.style.borderColor = 'var(--accent-line)'}
+              onBlur={e => e.currentTarget.style.borderColor = 'var(--line)'}
+            />
+          </div>
+          <div style={{ marginTop: 6, fontSize: 10, color: 'var(--fg-3)', fontFamily: 'var(--mono)' }}>
+            공란이면 마스크를 원본 스프라이트 옆에 바로 저장
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '12px 20px',
+          fontSize: 10.5, color: 'var(--fg-3)', fontFamily: 'var(--mono)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+        }}>
+          <span>Bottega · Sprite Mask Painter</span>
+          <a
+            href="https://github.com/wooson00308/bottega"
+            target="_blank" rel="noreferrer"
+            style={{ color: 'var(--fg-2)', textDecoration: 'none' }}
+            onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'var(--fg-2)'}
+          >
+            github.com/wooson00308/bottega ↗
+          </a>
+        </div>
       </div>
     </div>
   );
