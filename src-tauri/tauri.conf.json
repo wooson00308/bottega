@@ -1,0 +1,49 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Bottega",
+  "version": "0.1.0",
+  "identifier": "com.bottega.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Bottega — Sprite Mask Painter",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1100,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNEMDNFOTU1OUY1NDUzNTAKUldSUVUxU2ZWZWtEUFNHMHFaRlZ2bUNvTXJUMTlXaUM4ZExLQTJPUUl1OHAyWjRuL3hJZlhsbU4K",
+      "endpoints": [
+        "https://github.com/wooson00308/bottega/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
